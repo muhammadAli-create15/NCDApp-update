@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/api_client.dart';
 import '../auth/auth_provider.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -24,12 +23,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final access = prefs.getString('access');
-      final res = await http
-          .get(Uri.parse('${AuthProvider.baseUrl}/notifications/'), headers: {
-        'Authorization': 'Bearer ${access ?? ''}',
-      }).timeout(const Duration(seconds: 15));
+      final res = await ApiClient.get('/notifications/');
       if (res.statusCode == 200) {
         setState(() {
           _data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -73,6 +67,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           title: Text(e['name']?.toString() ?? ''),
                           subtitle: Text('Time: ${e['reminder_time'] ?? ''}'),
                         )),
+                    const SizedBox(height: 12),
+                    const Text('Alerts', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ...(((_data?['alerts']) as List? ?? [])).map((e) {
+                      final m = e as Map<String, dynamic>;
+                      return ListTile(
+                        leading: const Icon(Icons.warning_amber_outlined),
+                        title: Text(m['alert_type']?.toString() ?? ''),
+                        subtitle: Text(m['message']?.toString() ?? ''),
+                        trailing: Wrap(spacing: 8, children: [
+                          OutlinedButton(onPressed: () async {
+                            final id = m['id'];
+                            if (id != null) {
+                              await ApiClient.post('/alerts/$id/acknowledge/', {});
+                              _load();
+                            }
+                          }, child: const Text('Acknowledge')),
+                          OutlinedButton(onPressed: () async {
+                            final id = m['id'];
+                            if (id != null) {
+                              await ApiClient.post('/alerts/$id/snooze/', {});
+                              _load();
+                            }
+                          }, child: const Text('Snooze')),
+                        ]),
+                      );
+                    })
                   ],
                 ),
     );

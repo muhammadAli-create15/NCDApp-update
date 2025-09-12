@@ -4,7 +4,18 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthProvider extends ChangeNotifier {
-  static const String baseUrl = 'http://192.168.1.102:8000/api';
+  static String _resolveBaseUrl() {
+    const envUrl = String.fromEnvironment('API_URL');
+    if (envUrl.isNotEmpty) {
+      return envUrl;
+    }
+    if (kIsWeb) {
+      return 'http://127.0.0.1:8000/api';
+    }
+    return 'http://127.0.0.1:8000/api';
+  }
+
+  static final String baseUrl = _resolveBaseUrl();
   String? _access;
   String? _refresh;
   bool _loading = false;

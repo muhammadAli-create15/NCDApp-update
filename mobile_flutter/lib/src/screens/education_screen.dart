@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../auth/api_client.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_provider.dart';
 
 class EducationScreen extends StatefulWidget {
@@ -12,34 +13,55 @@ class EducationScreen extends StatefulWidget {
 }
 
 class _EducationScreenState extends State<EducationScreen> {
-  bool _loading = true;
+  List<String> _recs = [];
+  bool _loading = false;
   String? _error;
   List<dynamic> _items = [];
   List<dynamic> _topics = [];
   String _filter = 'all';
 
-  Future<Map<String, String>> _authHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('access');
-    return {
-      'Authorization': 'Bearer ${access ?? ''}',
-      'Content-Type': 'application/json'
-    };
+  Future<void> _loadRecommendations() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final auth = context.read<AuthProvider>();
+      final token = auth.access;
+      final res = await ApiClient.get('/recommendations/');
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final List<dynamic> tips = data['recommendations'] ?? [];
+        setState(() {
+          _recs = tips.map((e) => e.toString()).toList();
+        });
+      } else {
+        setState(() {
+          _error = 'Failed to load recommendations (${res.statusCode})';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Network error loading recommendations';
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    _loadRecommendations();
     _load();
   }
 
   Future<void> _load() async {
     try {
-      final headers = await _authHeaders();
-      final itemsF = http.get(Uri.parse('${AuthProvider.baseUrl}/education/'), headers: headers);
-      final topicsF = http.get(Uri.parse('${AuthProvider.baseUrl}/education/topics/'), headers: headers);
-      final res = await itemsF.timeout(const Duration(seconds: 15));
-      final tp = await topicsF.timeout(const Duration(seconds: 15));
+      final res = await ApiClient.get('/education/');
+      final tp = await ApiClient.get('/education/topics/');
       setState(() {
         _items = res.statusCode == 200 ? (jsonDecode(res.body) as List<dynamic>) : [];
         _topics = tp.statusCode == 200 ? (jsonDecode(tp.body) as List<dynamic>) : [];
@@ -60,45 +82,61 @@ class _EducationScreenState extends State<EducationScreen> {
         : _items.where((e) => (e as Map<String, dynamic>)['topic']?.toString() == _filter).toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Education')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Row(
-                        children: [
-                          const Text('Topic:'),
-                          const SizedBox(width: 12),
-                          DropdownButton<String>(
-                            value: _filter,
-                            items: [
-                              const DropdownMenuItem(value: 'all', child: Text('All')),
-                              ..._topics.map((t) => DropdownMenuItem(value: t.toString(), child: Text(t.toString()))),
-                            ],
-                            onChanged: (v) => setState(() => _filter = v ?? 'all'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) {
-                          final m = filtered[i] as Map<String, dynamic>;
-                          return ListTile(
-                            leading: const Icon(Icons.menu_book_outlined),
-                            title: Text(m['title']?.toString() ?? ''),
-                            subtitle: Text((m['content']?.toString() ?? '').isEmpty ? (m['media_url']?.toString() ?? '') : m['content']?.toString() ?? ''),
-                            trailing: Text(m['topic']?.toString() ?? ''),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
+      body: RefreshIndicator(
+        onRefresh: _loadRecommendations,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text('Personalized Recommendations', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+            if (_recs.isNotEmpty)
+              ..._recs.map((r) => ListTile(leading: const Icon(Icons.check_circle_outline, color: Colors.teal), title: Text(r))).toList(),
+            if (!_loading && _recs.isEmpty && _error == null)
+              const Text('No recommendations yet. Pull to refresh.'),
+            const SizedBox(height: 24),
+            const Text('Education Library', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('Explore articles, videos, and quizzes to support your health journey.'),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  const Text('Topic:'),
+                  const SizedBox(width: 12),
+                  DropdownButton<String>(
+                    value: _filter,
+                    items: [
+                      const DropdownMenuItem(value: 'all', child: Text('All')),
+                      ..._topics.map((t) => DropdownMenuItem(value: t.toString(), child: Text(t.toString()))),
+                    ],
+                    onChanged: (v) => setState(() => _filter = v ?? 'all'),
+                  ),
+                ],
+              ),
+            ),
+            ...filtered.map((e) {
+              final m = e as Map<String, dynamic>;
+              final media = m['media_url']?.toString() ?? '';
+              return ListTile(
+                leading: const Icon(Icons.menu_book_outlined),
+                title: Text(m['title']?.toString() ?? ''),
+                subtitle: Text((m['content']?.toString() ?? '').isEmpty ? media : m['content']?.toString() ?? ''),
+                trailing: Text(m['topic']?.toString() ?? ''),
+                onTap: () async {
+                  if (media.startsWith('http')) {
+                    final uri = Uri.parse(media);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  }
+                },
+              );
+            }).toList(),
+          ],
+        ),
+      ),
     );
   }
 }

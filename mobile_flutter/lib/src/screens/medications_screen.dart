@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/api_client.dart';
 import '../auth/auth_provider.dart';
 
 class MedicationsScreen extends StatefulWidget {
@@ -27,20 +27,9 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
     _load();
   }
 
-  Future<Map<String, String>> _authHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('access');
-    return {
-      'Authorization': 'Bearer ${access ?? ''}',
-      'Content-Type': 'application/json'
-    };
-  }
-
   Future<void> _load() async {
     try {
-      final res = await http
-          .get(Uri.parse('${AuthProvider.baseUrl}/medications/'), headers: await _authHeaders())
-          .timeout(const Duration(seconds: 15));
+      final res = await ApiClient.get('/medications/');
       if (res.statusCode == 200) {
         setState(() {
           _items = jsonDecode(res.body) as List<dynamic>;
@@ -84,9 +73,7 @@ class _MedicationsScreenState extends State<MedicationsScreen> {
                 'frequency': _frequency.text.trim(),
                 'reminder_time': _time.text.trim(),
               });
-              final res = await http
-                  .post(Uri.parse('${AuthProvider.baseUrl}/medications/'), headers: await _authHeaders(), body: body)
-                  .timeout(const Duration(seconds: 15));
+              final res = await ApiClient.post('/medications/', jsonDecode(body) as Map<String, dynamic>);
               if (!mounted) return;
               Navigator.pop(context);
               if (res.statusCode == 201) {

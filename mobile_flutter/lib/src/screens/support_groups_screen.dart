@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import '../auth/api_client.dart';
 import '../auth/auth_provider.dart';
 
 class SupportGroupsScreen extends StatefulWidget {
@@ -18,15 +18,6 @@ class _SupportGroupsScreenState extends State<SupportGroupsScreen> {
   final _message = TextEditingController();
   int? _selectedGroupId;
 
-  Future<Map<String, String>> _authHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('access');
-    return {
-      'Authorization': 'Bearer ${access ?? ''}',
-      'Content-Type': 'application/json'
-    };
-  }
-
   @override
   void initState() {
     super.initState();
@@ -35,9 +26,7 @@ class _SupportGroupsScreenState extends State<SupportGroupsScreen> {
 
   Future<void> _load() async {
     try {
-      final res = await http
-          .get(Uri.parse('${AuthProvider.baseUrl}/support-groups/'), headers: await _authHeaders())
-          .timeout(const Duration(seconds: 15));
+      final res = await ApiClient.get('/support-groups/');
       setState(() {
         _groups = res.statusCode == 200 ? (jsonDecode(res.body) as List<dynamic>) : [];
         _loading = false;
@@ -52,13 +41,10 @@ class _SupportGroupsScreenState extends State<SupportGroupsScreen> {
 
   Future<void> _sendMessage() async {
     if (_selectedGroupId == null || _message.text.trim().isEmpty) return;
-    final res = await http
-        .post(Uri.parse('${AuthProvider.baseUrl}/support-group-messages/'), headers: await _authHeaders(), body: jsonEncode({
+    final res = await ApiClient.post('/support-group-messages/', {
       'group': _selectedGroupId,
-      // backend will use current user as author if enforced; otherwise this fails unless author provided
-      'message': _message.text.trim()
-    }))
-        .timeout(const Duration(seconds: 15));
+      'message': _message.text.trim(),
+    });
     if (res.statusCode == 201) {
       _message.clear();
       if (mounted) {

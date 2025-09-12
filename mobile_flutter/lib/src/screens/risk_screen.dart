@@ -1,12 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/api_client.dart';
 import '../auth/auth_provider.dart';
 
 class RiskScreen extends StatefulWidget {
-  final int patientId;
-  const RiskScreen({super.key, required this.patientId});
+  final int? patientId;
+  const RiskScreen({super.key, this.patientId});
 
   @override
   State<RiskScreen> createState() => _RiskScreenState();
@@ -17,15 +16,7 @@ class _RiskScreenState extends State<RiskScreen> {
   String? _error;
   Map<String, dynamic>? _rb;
   Map<String, dynamic>? _ml;
-
-  Future<Map<String, String>> _authHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('access');
-    return {
-      'Authorization': 'Bearer ${access ?? ''}',
-      'Content-Type': 'application/json'
-    };
-  }
+  Map<String, dynamic>? _ada;
 
   @override
   void initState() {
@@ -35,11 +26,14 @@ class _RiskScreenState extends State<RiskScreen> {
 
   Future<void> _load() async {
     try {
-      final rb = await http.get(Uri.parse('${AuthProvider.baseUrl}/risk/${widget.patientId}/'), headers: await _authHeaders()).timeout(const Duration(seconds: 15));
-      final ml = await http.get(Uri.parse('${AuthProvider.baseUrl}/risk-ml/${widget.patientId}/'), headers: await _authHeaders()).timeout(const Duration(seconds: 15));
+      final useMe = widget.patientId == null;
+      final rb = await ApiClient.get(useMe ? '/risk/me/' : '/risk/${widget.patientId}/');
+      final ml = await ApiClient.get(useMe ? '/risk-ml/me/' : '/risk-ml/${widget.patientId}/');
+      final ada = await ApiClient.get('/risk-ada/me/');
       setState(() {
         _rb = rb.statusCode == 200 ? jsonDecode(rb.body) : null;
         _ml = ml.statusCode == 200 ? jsonDecode(ml.body) : null;
+        _ada = ada.statusCode == 200 ? jsonDecode(ada.body) : null;
         _loading = false;
       });
     } catch (e) {
@@ -66,7 +60,12 @@ class _RiskScreenState extends State<RiskScreen> {
                     Text('Hypertension: ${_rb?['hypertension_risk_score'] ?? '-'}'),
                     const SizedBox(height: 16),
                     const Text('ML-inspired risk', style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text('Risk %: ${_ml?['risk_percent'] ?? '-'}'),
+                    Text('Risk %: ${_ml?['ml_risk_score'] ?? '-'}'),
+                    if (_ml?['model'] != null) Text('Model: ${_ml?['model']?['framework'] ?? 'heuristic'}'),
+                    const SizedBox(height: 16),
+                    const Text('ADA Type 2 Diabetes Risk', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Score: ${_ada?['ada_score'] ?? '-'}'),
+                    Text('Category: ${_ada?['category'] ?? '-'}'),
                   ]),
                 ),
     );

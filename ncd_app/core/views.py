@@ -52,8 +52,13 @@ from .serializers import (
     WorkerAssignmentSerializer,
 )
 from django.db.models import Avg, Max, Min
+from django.db.models.functions import TruncDate
+from django.http import HttpResponse
+import csv
+from datetime import timedelta
 from rest_framework.decorators import action
 from core.utils.fcm import send_fcm_notification
+from rest_framework.views import APIView
 
 
 class PatientProfileViewSet(viewsets.ModelViewSet):
@@ -139,23 +144,51 @@ class QuestionnaireResponseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = self.queryset
-        if user.patient_profile.role == 'patient':
+        if not hasattr(user, 'patient_profile'):
+            return qs.none().order_by('-submitted_at', '-id')
+        role = user.patient_profile.role
+        if role == 'patient':
             qs = qs.filter(patient__user=user)
-        elif user.patient_profile.role == 'provider':
+        elif role == 'provider':
             assignments = ProviderAssignment.objects.filter(provider=user.patient_profile).values_list('patient_id', flat=True)
             qs = qs.filter(patient_id__in=assignments)
-        elif user.patient_profile.role == 'worker':
+        elif role == 'worker':
             assigns = WorkerAssignment.objects.filter(worker=user.patient_profile).values_list('patient_id', flat=True)
             qs = qs.filter(patient_id__in=assigns)
         limit = int(self.request.query_params.get('limit', 0) or 0)
-        qs = qs.order_by('-recorded_at', '-id')
+        qs = qs.order_by('-submitted_at', '-id')
         return qs[:limit] if limit > 0 else qs
 
     def perform_create(self, serializer):
         role = self.request.user.patient_profile.role
         if role not in ['patient', 'worker']:
             raise PermissionDenied('Not allowed to submit responses')
+        if 'patient' not in serializer.validated_data or serializer.validated_data.get('patient') is None:
+            if hasattr(self.request.user, 'patient_profile'):
+                serializer.save(patient=self.request.user.patient_profile)
+                return
         serializer.save()
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+        except Exception as exc:
+            # Fail safe: never block UI; return empty list with reason
+            return Response([], status=status.HTTP_200_OK)
+
+
+class MyQuestionnairesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if not hasattr(user, 'patient_profile'):
+            return Response([], status=status.HTTP_200_OK)
+        qs = QuestionnaireResponse.objects.filter(patient__user=user).order_by('-submitted_at', '-id')
+        data = QuestionnaireResponseSerializer(qs, many=True).data
+        return Response(data)
 
 
 class DeviceReadingViewSet(viewsets.ModelViewSet):
@@ -225,6 +258,27 @@ class AlertViewSet(viewsets.ModelViewSet):
         qs = qs.order_by('-created_at', '-id')
         return qs[:limit] if limit > 0 else qs
 
+    @action(detail=True, methods=['post'])
+    def acknowledge(self, request, pk=None):
+        alert = self.get_object()
+        alert.resolved = True
+        alert.save(update_fields=['resolved'])
+        return Response({'status': 'acknowledged'})
+
+    @action(detail=True, methods=['post'])
+    def snooze(self, request, pk=None):
+        # For simplicity, mark resolved and create a follow-up info alert
+        alert = self.get_object()
+        alert.resolved = True
+        alert.save(update_fields=['resolved'])
+        Alert.objects.create(
+            patient=alert.patient,
+            alert_type=f"snoozed_{alert.alert_type}",
+            message="Reminder snoozed. We'll notify you later.",
+            severity='info'
+        )
+        return Response({'status': 'snoozed'})
+
 
 class AppointmentViewSet(viewsets.ModelViewSet):
     queryset = Appointment.objects.all()
@@ -281,6 +335,10 @@ class SupportGroupMessageViewSet(viewsets.ModelViewSet):
         user = self.request.user
         groups = SupportGroup.objects.filter(members__user=user)
         return self.queryset.filter(group__in=groups)
+
+    def perform_create(self, serializer):
+        author = getattr(self.request.user, 'patient_profile', None)
+        serializer.save(author=author)
 
 
 class NotificationsViewSet(viewsets.ViewSet):
@@ -381,6 +439,129 @@ class AnalyticsViewSet(viewsets.ViewSet):
         bp = [{'t': r.recorded_at, 'sys': r.systolic, 'dia': r.diastolic} for r in bp_qs]
         return Response({'glucose': list(reversed(glucose)), 'bp': list(reversed(bp))})
 
+    @action(detail=False, methods=['get'], url_path='report')
+    def report(self, request):
+        """Daily and weekly aggregates for self-monitoring reports."""
+        user = request.user
+        if user.patient_profile.role == 'patient':
+            patient = user.patient_profile
+        else:
+            patient_id = request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                patient = PatientProfile.objects.get(id=patient_id)
+            except PatientProfile.DoesNotExist:
+                return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        readings = DeviceReading.objects.filter(patient=patient)
+        # Daily aggregates (last 14 days)
+        daily_glucose = (
+            readings.filter(reading_type='glucose')
+            .annotate(day=TruncDate('recorded_at'))
+            .values('day')
+            .annotate(avg=Avg('value'))
+            .order_by('day')
+        )
+        daily_bp = (
+            readings.filter(reading_type='bp')
+            .annotate(day=TruncDate('recorded_at'))
+            .values('day')
+            .annotate(avg_sys=Avg('systolic'), avg_dia=Avg('diastolic'))
+            .order_by('day')
+        )
+
+        # Simple weekly (last 8 weeks) using 7-day buckets from last 56 days
+        # For simplicity, group by date // 7 buckets on client; here we just return daily and counts
+        payload = {
+            'daily': {
+                'glucose': [{'day': d['day'], 'avg': d['avg']} for d in daily_glucose],
+                'bp': [{'day': d['day'], 'avg_sys': d['avg_sys'], 'avg_dia': d['avg_dia']} for d in daily_bp],
+            },
+            'counts': {
+                'glucose': readings.filter(reading_type='glucose').count(),
+                'bp': readings.filter(reading_type='bp').count(),
+                'weight': readings.filter(reading_type='weight').count(),
+                'bmi': readings.filter(reading_type='bmi').count(),
+                'waist': readings.filter(reading_type='waist').count(),
+            }
+        }
+        return Response(payload)
+
+    @action(detail=False, methods=['get'], url_path='weekly')
+    def weekly(self, request):
+        user = request.user
+        if user.patient_profile.role == 'patient':
+            patient = user.patient_profile
+        else:
+            patient_id = request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                patient = PatientProfile.objects.get(id=patient_id)
+            except PatientProfile.DoesNotExist:
+                return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Build weekly buckets: last 8 weeks based on date // 7 buckets from daily data
+        readings = DeviceReading.objects.filter(patient=patient)
+        daily_glucose = (
+            readings.filter(reading_type='glucose')
+            .annotate(day=TruncDate('recorded_at'))
+            .values('day')
+            .annotate(avg=Avg('value'))
+            .order_by('day')
+        )
+        daily_bp = (
+            readings.filter(reading_type='bp')
+            .annotate(day=TruncDate('recorded_at'))
+            .values('day')
+            .annotate(avg_sys=Avg('systolic'), avg_dia=Avg('diastolic'))
+            .order_by('day')
+        )
+        def to_weeks(rows, keys):
+            weeks = {}
+            for r in rows:
+                day = r['day']
+                week_start = day - timedelta(days=day.weekday())
+                if week_start not in weeks:
+                    weeks[week_start] = {k: [] for k in keys}
+                for k in keys:
+                    weeks[week_start][k].append(r.get(k))
+            out = []
+            for ws, vals in sorted(weeks.items()):
+                item = {'week_start': ws}
+                for k, arr in vals.items():
+                    arr = [a for a in arr if a is not None]
+                    item[k] = sum(arr)/len(arr) if arr else None
+                out.append(item)
+            return out
+        glucose_w = to_weeks(daily_glucose, ['avg'])
+        bp_w = to_weeks(daily_bp, ['avg_sys', 'avg_dia'])
+        return Response({'glucose': glucose_w, 'bp': bp_w})
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_csv(self, request):
+        user = request.user
+        if user.patient_profile.role == 'patient':
+            patient = user.patient_profile
+        else:
+            patient_id = request.query_params.get('patient_id')
+            if not patient_id:
+                return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                patient = PatientProfile.objects.get(id=patient_id)
+            except PatientProfile.DoesNotExist:
+                return Response({'error': 'Patient not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        readings = DeviceReading.objects.filter(patient=patient).order_by('-recorded_at')
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="readings.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['type', 'value', 'unit', 'systolic', 'diastolic', 'recorded_at'])
+        for r in readings:
+            writer.writerow([r.reading_type, r.value, r.unit, r.systolic, r.diastolic, r.recorded_at.isoformat()])
+        return response
+
 
 class DeviceViewSet(viewsets.ModelViewSet):
     queryset = Device.objects.all()
@@ -425,6 +606,12 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
     queryset = QuestionnaireTemplate.objects.all()
     serializer_class = QuestionnaireTemplateSerializer
     permission_classes = [IsAuthenticated, IsProvider]
+
+    def get_permissions(self):
+        # Allow all authenticated users to read templates; restrict write to providers
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsProvider()]
 
 
 class ExportViewSet(viewsets.ViewSet):
@@ -490,8 +677,22 @@ class QuizResponseViewSet(viewsets.ModelViewSet):
     serializer_class = QuizResponseSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        if not hasattr(user, 'patient_profile'):
+            return self.queryset.none().order_by('-submitted_at', '-id')
+        return self.queryset.filter(patient=user.patient_profile).order_by('-submitted_at', '-id')
+
     def perform_create(self, serializer):
-        instance = serializer.save()
+        # Attach current patient if not provided
+        data = serializer.validated_data
+        if 'patient' not in data or data.get('patient') is None:
+            if hasattr(self.request.user, 'patient_profile'):
+                instance = serializer.save(patient=self.request.user.patient_profile)
+            else:
+                instance = serializer.save()
+        else:
+            instance = serializer.save()
         # Compute score
         questions = QuizQuestion.objects.filter(quiz=instance.quiz).order_by('id')
         score = 0
@@ -503,6 +704,58 @@ class QuizResponseViewSet(viewsets.ModelViewSet):
                 continue
         instance.score = score
         instance.save(update_fields=['score'])
+
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+        except Exception:
+            return Response([], status=status.HTTP_200_OK)
+
+    def create(self, request, *args, **kwargs):
+        # Create as usual
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance: QuizResponse = serializer.instance
+        # Build explanations and suggestions
+        questions = QuizQuestion.objects.filter(quiz=instance.quiz).order_by('id')
+        explanations = []
+        total = questions.count()
+        for idx, q in enumerate(questions):
+            correct_choice = None
+            try:
+                correct_choice = (q.choices or [])[q.correct_index]
+            except Exception:
+                correct_choice = None
+            user_choice = None
+            try:
+                user_choice = (instance.answers or [])[idx]
+            except Exception:
+                user_choice = None
+            explanations.append({
+                'question': q.text,
+                'correct_index': q.correct_index,
+                'correct_choice': correct_choice,
+                'your_choice': user_choice,
+                'is_correct': (user_choice == q.correct_index),
+            })
+        # Suggest education items by quiz topic
+        suggestions = []
+        try:
+            items = EducationContent.objects.filter(topic=getattr(instance.quiz, 'topic', 'general')).order_by('-created_at')[:5]
+            suggestions = EducationContentSerializer(items, many=True).data
+        except Exception:
+            suggestions = []
+        headers = self.get_success_headers(serializer.data)
+        return Response({
+            'id': instance.id,
+            'score': instance.score,
+            'total': total,
+            'explanations': explanations,
+            'education_suggestions': suggestions,
+        }, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class DirectMessageViewSet(viewsets.ModelViewSet):

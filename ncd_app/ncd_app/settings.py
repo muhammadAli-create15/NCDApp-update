@@ -118,6 +118,18 @@ X_FRAME_OPTIONS = 'DENY'
 
 # CORS (allow local Flutter web)
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    'accept', 'accept-encoding', 'authorization', 'content-type', 'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with'
+]
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5151',
+    'http://127.0.0.1:5151',
+    'http://localhost:5252',
+    'http://127.0.0.1:5252',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
@@ -130,8 +142,6 @@ try:
         'DEFAULT_AUTHENTICATION_CLASSES': (
             'rest_framework_simplejwt.authentication.JWTAuthentication',
         ),
-        'DEFAULT_PAGINATION_CLASS': 'core.pagination.DefaultPageNumberPagination',
-        'PAGE_SIZE': 20,
         'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
         'DEFAULT_THROTTLE_CLASSES': [
             'rest_framework.throttling.UserRateThrottle',
@@ -145,8 +155,6 @@ except Exception:
         'DEFAULT_AUTHENTICATION_CLASSES': (
             'rest_framework_simplejwt.authentication.JWTAuthentication',
         ),
-        'DEFAULT_PAGINATION_CLASS': 'core.pagination.DefaultPageNumberPagination',
-        'PAGE_SIZE': 20,
         'DEFAULT_THROTTLE_CLASSES': [
             'rest_framework.throttling.UserRateThrottle',
         ],

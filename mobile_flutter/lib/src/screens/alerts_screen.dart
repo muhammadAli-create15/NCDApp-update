@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../auth/api_client.dart';
 import '../auth/auth_provider.dart';
 
 class AlertsScreen extends StatefulWidget {
@@ -24,12 +23,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final access = prefs.getString('access');
-      final res = await http
-          .get(Uri.parse('${AuthProvider.baseUrl}/alerts/'), headers: {
-        'Authorization': 'Bearer ${access ?? ''}',
-      }).timeout(const Duration(seconds: 15));
+      final res = await ApiClient.get('/alerts/');
       if (res.statusCode == 200) {
         setState(() {
           _items = jsonDecode(res.body) as List<dynamic>;

@@ -10,11 +10,16 @@ import 'src/screens/notifications_screen.dart';
 import 'src/screens/medications_screen.dart';
 import 'src/screens/appointments_screen.dart';
 import 'src/screens/analytics_screen.dart';
+import 'src/screens/risk_screen.dart';
 import 'src/screens/education_screen.dart';
 import 'src/screens/questionnaires_screen.dart';
 import 'src/screens/support_groups_screen.dart';
+import 'src/screens/quizzes_screen.dart';
+import 'src/screens/quiz_attempt_screen.dart';
+import 'src/screens/quizzes_history_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const NcdApp());
 }
 
@@ -39,9 +44,13 @@ class NcdApp extends StatelessWidget {
           '/medications': (_) => const MedicationsScreen(),
           '/appointments': (_) => const AppointmentsScreen(),
           '/analytics': (_) => const AnalyticsScreen(),
+          '/risk': (_) => const RiskScreen(),
           '/education': (_) => const EducationScreen(),
           '/questionnaires': (_) => const QuestionnairesScreen(),
           '/support-groups': (_) => const SupportGroupsScreen(),
+          '/quizzes': (_) => const QuizzesScreen(),
+          '/quiz': (_) => const QuizAttemptScreen(),
+          '/quiz-history': (_) => const QuizzesHistoryScreen(),
         },
       ),
     );

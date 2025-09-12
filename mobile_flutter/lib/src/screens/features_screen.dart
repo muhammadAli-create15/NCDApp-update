@@ -19,6 +19,10 @@ class FeaturesScreen extends StatelessWidget {
             child: const Text('Readings'),
           ),
           ElevatedButton(
+            onPressed: () => Navigator.pushNamed(context, '/risk'),
+            child: const Text('Risk'),
+          ),
+          ElevatedButton(
             onPressed: () => Navigator.pushNamed(context, '/alerts'),
             child: const Text('Alerts'),
           ),
@@ -49,6 +53,10 @@ class FeaturesScreen extends StatelessWidget {
           ElevatedButton(
             onPressed: () => Navigator.pushNamed(context, '/support-groups'),
             child: const Text('Support Groups'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pushNamed(context, '/quizzes'),
+            child: const Text('Quizzes'),
           ),
         ],
       ),
