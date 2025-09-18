@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../auth/logout_helper.dart';
 import 'package:provider/provider.dart';
-import '../auth/auth_provider.dart';
+import '../auth/supabase_auth_provider.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -10,69 +11,79 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _user = TextEditingController(text: 'alice');
-  final _email = TextEditingController(text: 'a@a.com');
-  final _pass = TextEditingController(text: 'Str0ngPass!');
-  final _age = TextEditingController(text: '35');
-  final _gender = TextEditingController(text: 'female');
-  final _height = TextEditingController(text: '165');
-  final _weight = TextEditingController(text: '68');
-  final _waist = TextEditingController(text: '78');
-  String _role = 'patient';
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
+  final _email = TextEditingController(text: 'user@example.com');
+  final _pass = TextEditingController(text: 'password123');
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final auth = context.watch<SupabaseAuthProvider>();
     return Scaffold(
-      appBar: AppBar(title: const Text('Register')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          TextField(controller: _user, decoration: const InputDecoration(labelText: 'Username')),
-          TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email')),
-          TextField(controller: _pass, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
-          DropdownButtonFormField(
-            value: _role,
-            items: const [
-              DropdownMenuItem(value: 'patient', child: Text('Patient')),
-              DropdownMenuItem(value: 'provider', child: Text('Provider')),
-              DropdownMenuItem(value: 'worker', child: Text('Worker')),
-            ],
-            onChanged: (v) => setState(() => _role = v as String),
-            decoration: const InputDecoration(labelText: 'Role'),
+      appBar: AppBar(
+        title: const Text('Register'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () => logout(context),
           ),
-          TextField(controller: _age, decoration: const InputDecoration(labelText: 'Age'), keyboardType: TextInputType.number),
-          TextField(controller: _gender, decoration: const InputDecoration(labelText: 'Gender')),
-          TextField(controller: _height, decoration: const InputDecoration(labelText: 'Height (cm)'), keyboardType: TextInputType.number),
-          TextField(controller: _weight, decoration: const InputDecoration(labelText: 'Weight (kg)'), keyboardType: TextInputType.number),
-          TextField(controller: _waist, decoration: const InputDecoration(labelText: 'Waist (cm)'), keyboardType: TextInputType.number),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: auth.isLoading
-                ? null
-                : () async {
-                    final err = await auth.register({
-                      'username': _user.text.trim(),
-                      'password': _pass.text,
-                      'email': _email.text.trim(),
-                      'role': _role,
-                      'age': int.tryParse(_age.text) ?? 0,
-                      'gender': _gender.text,
-                      'height_cm': double.tryParse(_height.text) ?? 0,
-                      'weight_kg': double.tryParse(_weight.text) ?? 0,
-                      'waist_cm': double.tryParse(_waist.text) ?? 0,
-                    });
-                    if (!mounted) return;
-                    if (err == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Registered')));
-                      Navigator.pop(context);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-                    }
-                  },
-            child: Text(auth.isLoading ? '...' : 'Submit'),
+        ],
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Card(
+            elevation: 4,
+            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Create Account', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  TextField(controller: _firstName, decoration: const InputDecoration(labelText: 'First Name', prefixIcon: Icon(Icons.person))),
+                  const SizedBox(height: 12),
+                  TextField(controller: _lastName, decoration: const InputDecoration(labelText: 'Last Name', prefixIcon: Icon(Icons.person))),
+                  const SizedBox(height: 12),
+                  TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email))),
+                  const SizedBox(height: 12),
+                  TextField(controller: _pass, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), obscureText: true),
+                  const SizedBox(height: 16),
+  ElevatedButton(
+                    onPressed: auth.isLoading
+                        ? null
+                        : () async {
+                            final err = await auth.register(
+                              _email.text.trim(),
+                              _pass.text,
+                              _firstName.text.trim(),
+                              _lastName.text.trim(),
+                            );
+                            if (!mounted) return;
+                            if (err == null) {
+                              // Registration successful and user is automatically signed in
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Welcome! Account created and signed in.')),
+                              );
+                              if (!mounted) return;
+                              // Navigate directly to the home dashboard
+                              Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+                            } else {
+                              // Show error regardless of type - no special handling for confirmation
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                            }
+                          },
+                    child: auth.isLoading
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Register'),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ]),
+        ),
       ),
     );
   }
