@@ -16,9 +16,8 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
     with TickerProviderStateMixin {
   late TabController _tabController;
   
-  bool _hasReadPermission = false;
+  // Since we're always granting write permission, we only need this variable
   bool _hasWritePermission = false;
-  bool _isCheckingPermissions = true;
   Map<String, dynamic> _stats = {};
 
   @override
@@ -33,9 +32,7 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
     // Always grant all permissions to all users
     if (mounted) {
       setState(() {
-        _hasReadPermission = true;
         _hasWritePermission = true;
-        _isCheckingPermissions = false;
       });
     }
   }
@@ -118,13 +115,11 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
           _buildNewReadingTab(),
         ],
       ),
-      floatingActionButton: true // Always show the FAB
-          ? FloatingActionButton(
+      floatingActionButton: FloatingActionButton(
               onPressed: _showNewReadingForm,
               tooltip: 'Add New Reading',
               child: const Icon(Icons.add),
-            )
-          : null,
+            ),
     );
   }
 
@@ -222,15 +217,14 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
     required IconData icon,
     required Color color,
   }) {
-    return Flexible(
-      child: Card(
-        margin: EdgeInsets.symmetric(
-          horizontal: MediaQuery.of(context).size.width * 0.05,
-          vertical: MediaQuery.of(context).size.height * 0.01,
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(MediaQuery.of(context).size.width * 0.03),
-          child: Column(
+    return Card(
+      margin: EdgeInsets.symmetric(
+        horizontal: MediaQuery.of(context).size.width * 0.05,
+        vertical: MediaQuery.of(context).size.height * 0.01,
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(MediaQuery.of(context).size.width * 0.03),
+        child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
@@ -260,8 +254,7 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildQuickActions() {
@@ -487,41 +480,7 @@ class _ReadingsWidgetState extends State<ReadingsWidget>
     );
   }
 
-  Widget _buildNoPermissionView() {
-    // This method will never be called now, but we'll keep it simple
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Medical Readings'),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              Text(
-                'Loading...',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Please wait while we set up your access.',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _checkPermissions,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // Removed unused _buildNoPermissionView method
 
   String _calculateDailyAverage() {
     final totalReadings = _stats['totalReadings'] as int? ?? 0;

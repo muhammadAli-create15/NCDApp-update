@@ -18,7 +18,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<SupabaseAuthProvider>();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Register'),
@@ -51,33 +50,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: _pass, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), obscureText: true),
                   const SizedBox(height: 16),
-  ElevatedButton(
-                    onPressed: auth.isLoading
-                        ? null
-                        : () async {
-                            final err = await auth.register(
-                              _email.text.trim(),
-                              _pass.text,
-                              _firstName.text.trim(),
-                              _lastName.text.trim(),
-                            );
-                            if (!mounted) return;
-                            if (err == null) {
-                              // Registration successful and user is automatically signed in
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Welcome! Account created and signed in.')),
-                              );
-                              if (!mounted) return;
-                              // Navigate directly to the home dashboard
-                              Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
-                            } else {
-                              // Show error regardless of type - no special handling for confirmation
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-                            }
-                          },
-                    child: auth.isLoading
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Register'),
+                  ElevatedButton(
+                    onPressed: _register,
+                    child: const Text('Register'),
                   ),
                 ],
               ),
@@ -86,6 +61,93 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
+  }
+
+  void _register() async {
+    // Validate inputs first
+    if (_email.text.isEmpty || !_email.text.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email address'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    if (_pass.text.isEmpty || _pass.text.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password must be at least 6 characters'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    
+    try {
+      final auth = context.read<SupabaseAuthProvider>();
+      final success = await auth.signUp(_email.text, _pass.text);
+      
+      // Close loading dialog
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      if (success) {
+        // Registration successful - redirect to dashboard
+        // Try to confirm the email if we have a user
+        if (auth.user != null) {
+          await auth.confirmUserEmail(auth.user!.id);
+        }
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        // Registration failed - show detailed error message
+        final errorMessage = auth.errorMessage ?? 'Registration failed. Please try again.';
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
+          ),
+        );
+        
+        // Log the error for debugging
+        print('Registration error: $errorMessage');
+      }
+    } catch (e) {
+      // Close loading dialog and show error
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      final errorMsg = 'Unexpected error: ${e.toString()}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      
+      // Log the error for debugging
+      print('Registration exception: $errorMsg');
+    }
   }
 }
 

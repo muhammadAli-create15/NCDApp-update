@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/supabase_service.dart';
+import '../utils/responsive_helper.dart';
 
 class UserHistoryCard extends StatefulWidget {
   const UserHistoryCard({super.key});
@@ -46,12 +47,34 @@ class _UserHistoryCardState extends State<UserHistoryCard> {
 
   @override
   Widget build(BuildContext context) {
+    // Use ResponsiveHelper to adjust based on screen size
+    final horizontalMargin = ResponsiveHelper.responsiveValue(
+      context: context,
+      mobile: 16.0,
+      tablet: 24.0,
+      desktop: 32.0,
+    );
+    
+    final verticalMargin = ResponsiveHelper.responsiveValue(
+      context: context,
+      mobile: 8.0,
+      tablet: 12.0,
+      desktop: 16.0,
+    );
+    
+    final padding = ResponsiveHelper.responsiveValue(
+      context: context,
+      mobile: 16.0,
+      tablet: 20.0,
+      desktop: 24.0,
+    );
+
     return Card(
       elevation: 3,
-      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      margin: EdgeInsets.symmetric(horizontal: horizontalMargin, vertical: verticalMargin),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.all(padding),
         child: _loading
             ? const Center(
                 child: Padding(
@@ -76,14 +99,40 @@ class _UserHistoryCardState extends State<UserHistoryCard> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.history, color: Colors.teal),
-                              const SizedBox(width: 8),
-                              const Text('Your Recent Activity', 
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                              Icon(Icons.history, 
+                                color: Colors.teal,
+                                size: ResponsiveHelper.responsiveValue(
+                                  context: context,
+                                  mobile: 18.0,
+                                  tablet: 20.0,
+                                  desktop: 24.0,
+                                ),
+                              ),
+                              SizedBox(width: ResponsiveHelper.responsiveValue(
+                                context: context,
+                                mobile: 8.0,
+                                tablet: 10.0,
+                                desktop: 12.0,
+                              )),
+                              Text('Your Recent Activity', 
+                                style: TextStyle(
+                                  fontSize: ResponsiveHelper.responsiveValue(
+                                    context: context,
+                                    mobile: 16.0,
+                                    tablet: 18.0,
+                                    desktop: 20.0,
+                                  ),
+                                  fontWeight: FontWeight.bold
+                                )
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: ResponsiveHelper.responsiveValue(
+                            context: context,
+                            mobile: 12.0,
+                            tablet: 16.0,
+                            desktop: 20.0,
+                          )),
                           if (_history!['last_reading'] != null)
                             _buildHistoryItem(Icons.monitor_heart, 'Last Reading', 
                               _formatDateTime(_history!['last_reading'])),
@@ -93,7 +142,12 @@ class _UserHistoryCardState extends State<UserHistoryCard> {
                           if (_history!['last_alert'] != null)
                             _buildHistoryItem(Icons.warning, 'Last Alert', 
                               _formatDateTime(_history!['last_alert'])),
-                          const SizedBox(height: 8),
+                          SizedBox(height: ResponsiveHelper.responsiveValue(
+                            context: context,
+                            mobile: 8.0,
+                            tablet: 12.0,
+                            desktop: 16.0,
+                          )),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
@@ -110,13 +164,56 @@ class _UserHistoryCardState extends State<UserHistoryCard> {
 
   Widget _buildHistoryItem(IconData icon, String title, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(
+        vertical: ResponsiveHelper.responsiveValue(
+          context: context,
+          mobile: 4.0,
+          tablet: 6.0,
+          desktop: 8.0,
+        ),
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.grey[600]),
-          const SizedBox(width: 8),
-          Text('$title: ', style: const TextStyle(fontWeight: FontWeight.w500)),
-          Text(value, style: TextStyle(color: Colors.grey[700])),
+          Icon(
+            icon, 
+            size: ResponsiveHelper.responsiveValue(
+              context: context,
+              mobile: 16.0,
+              tablet: 18.0,
+              desktop: 20.0,
+            ),
+            color: Colors.grey[600]
+          ),
+          SizedBox(width: ResponsiveHelper.responsiveValue(
+            context: context,
+            mobile: 8.0,
+            tablet: 10.0,
+            desktop: 12.0,
+          )),
+          Text(
+            '$title: ', 
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: ResponsiveHelper.responsiveValue(
+                context: context,
+                mobile: 14.0,
+                tablet: 15.0,
+                desktop: 16.0,
+              ),
+            ),
+          ),
+          Text(
+            value, 
+            style: TextStyle(
+              color: Colors.grey[700],
+              fontSize: ResponsiveHelper.responsiveValue(
+                context: context,
+                mobile: 14.0,
+                tablet: 15.0,
+                desktop: 16.0,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -125,10 +222,31 @@ class _UserHistoryCardState extends State<UserHistoryCard> {
   Widget _buildStatItem(String label, int count) {
     return Column(
       children: [
-        Text(count.toString(), 
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)
+        Text(
+          count.toString(), 
+          style: TextStyle(
+            fontSize: ResponsiveHelper.responsiveValue(
+              context: context,
+              mobile: 18.0,
+              tablet: 20.0,
+              desktop: 24.0,
+            ),
+            fontWeight: FontWeight.bold,
+            color: Colors.teal
+          )
         ),
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+        Text(
+          label, 
+          style: TextStyle(
+            fontSize: ResponsiveHelper.responsiveValue(
+              context: context,
+              mobile: 12.0,
+              tablet: 13.0,
+              desktop: 14.0,
+            ),
+            color: Colors.grey[600]
+          ),
+        ),
       ],
     );
   }

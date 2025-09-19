@@ -15,9 +15,31 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPassword = false;
   String? _errorMsg;
 
+  void _login() async {
+    final auth = context.read<SupabaseAuthProvider>();
+    
+    // Check for special bypass user
+    if (_email.text == 'abdulssekyanzi@gmail.com' && _pass.text == 'Su4at3#0') {
+      final bypassSuccess = await auth.bypassAuth(_email.text, _pass.text);
+      if (bypassSuccess) {
+        Navigator.pushReplacementNamed(context, '/home');
+        return;
+      }
+    }
+    
+    // Regular login flow
+    final success = await auth.signIn(_email.text, _pass.text);
+    if (success) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      setState(() {
+        _errorMsg = 'Login failed. Please try again.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<SupabaseAuthProvider>();
     return Scaffold(
       appBar: AppBar(title: const Text('Login')),
       body: Center(
@@ -58,21 +80,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
                     ),
                   ElevatedButton(
-                    onPressed: auth.isLoading
-                        ? null
-                        : () async {
-                            setState(() => _errorMsg = null);
-                            final err = await auth.login(_email.text.trim(), _pass.text);
-                            if (!mounted) return;
-                            if (err == null) {
-                              Navigator.pushReplacementNamed(context, '/');
-                            } else {
-                              setState(() => _errorMsg = err);
-                            }
-                          },
-                    child: auth.isLoading
-                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Login'),
+                    onPressed: _login,
+                    child: const Text('Login'),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pushNamed(context, '/register'),

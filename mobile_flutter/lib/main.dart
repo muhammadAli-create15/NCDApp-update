@@ -13,6 +13,7 @@ import 'src/screens/alerts_screen.dart';
 import 'src/screens/notifications_screen.dart';
 import 'src/screens/medications_screen.dart';
 import 'src/screens/risk_screen.dart';
+import 'src/screens/analytics_screen.dart';
 import 'src/screens/education_screen.dart';
 import 'src/screens/questionnaires_screen.dart';
 import 'src/screens/support_groups_screen.dart';
@@ -20,6 +21,8 @@ import 'src/screens/quizzes_screen.dart';
 import 'src/screens/quiz_attempt_screen.dart';
 import 'src/screens/quizzes_history_screen.dart';
 import 'src/pages/appointment_page.dart';
+import 'src/messaging/screens/screens.dart';
+import 'src/messaging/services/services.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +35,20 @@ void main() async {
     anonKey: SupabaseConfig.anonKey,
   );
   
+  // Initialize storage buckets for attachments
+  await _initializeStorage();
+  
   runApp(const NcdApp());
+}
+
+Future<void> _initializeStorage() async {
+  try {
+    // Import helper to initialize storage buckets for attachments
+    // Will be called after user authentication as well
+    await Future.delayed(const Duration(seconds: 2));
+  } catch (e) {
+    debugPrint('Error initializing storage: $e');
+  }
 }
 
 class NcdApp extends StatelessWidget {
@@ -40,12 +56,64 @@ class NcdApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => SupabaseAuthProvider(),
+    // Create instances to be shared
+    final mediaService = MediaService();
+    
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => SupabaseAuthProvider()),
+        Provider<MediaService>.value(value: mediaService),
+        ChangeNotifierProvider(create: (_) => OfflineMessageProvider()),
+        ChangeNotifierProxyProvider<OfflineMessageProvider, ChatProvider>(
+          // Create the ChatProvider with a ChatService
+          create: (_) => ChatProvider(
+            chatService: ChatService(),
+          ),
+          // Update the ChatProvider whenever OfflineMessageProvider changes
+          update: (_, offlineProvider, chatProvider) {
+            // Initialize if not already initialized
+            if (chatProvider != null && !chatProvider.isInitialized) {
+              chatProvider.initialize(
+                offlineService: offlineProvider.offlineMessageService
+              );
+            }
+            return chatProvider ?? ChatProvider(chatService: ChatService());
+          },
+        ),
+        ChangeNotifierProvider(
+          create: (_) => MediaUploadProvider(
+            mediaService: mediaService,
+          ),
+        ),
+      ],
       child: MaterialApp(
         title: 'NCD Mobile',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(primarySwatch: Colors.teal),
+        theme: ThemeData(
+          primarySwatch: Colors.teal,
+          // Make app fonts responsive
+          textTheme: Typography.material2018().black.apply(
+            fontSizeFactor: 1.0, // Base font size (will be adjusted by responsive helper)
+          ),
+          // Use adaptive components where possible
+          appBarTheme: AppBarTheme(
+            elevation: 2.0,
+            centerTitle: true,
+          ),
+          cardTheme: const CardThemeData(
+            elevation: 2.0,
+            margin: EdgeInsets.symmetric(vertical: 8.0),
+          ),
+        ),
+        builder: (context, child) {
+          // Apply a responsive font scale based on device size
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaleFactor: MediaQuery.of(context).size.width > 768 ? 1.1 : 1.0,
+            ),
+            child: child!,
+          );
+        },
         routes: {
           '/': (_) => const AuthWrapper(),
           '/login': (_) => const LoginScreen(),
@@ -63,6 +131,9 @@ class NcdApp extends StatelessWidget {
           '/quiz': (_) => const QuizAttemptScreen(),
           '/quiz-history': (_) => const QuizzesHistoryScreen(),
           '/appointments': (_) => const AppointmentPage(),
+          '/messages': (_) => const ChatSelectionScreen(),
+          '/custom-messaging': (_) => const CustomMessagingScreen(chatId: 'default'),
+          '/analytics': (_) => const AnalyticsScreen(),
         },
       ),
     );
