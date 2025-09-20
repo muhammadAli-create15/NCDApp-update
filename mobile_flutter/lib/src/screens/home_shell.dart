@@ -28,6 +28,7 @@ class _HomeShellState extends State<HomeShell> {
     {'title': 'Questionnaires', 'icon': Icons.assignment, 'route': '/questionnaires'},
     {'title': 'Support Groups', 'icon': Icons.group, 'route': '/support-groups'},
     {'title': 'Quizzes', 'icon': Icons.quiz, 'route': '/quizzes'},
+    {'title': 'Settings', 'icon': Icons.settings, 'route': '/settings'},
   ];
 
   void _onFeatureTap(int index) {
@@ -129,6 +130,13 @@ class _HomeShellState extends State<HomeShell> {
           title: const Text('NCD App'),
           centerTitle: true,
           elevation: isDesktop ? 4.0 : 2.0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () => Navigator.pushNamed(context, '/settings'),
+              tooltip: 'Settings',
+            ),
+          ],
         ),
         body: isDesktop
             ? Row(
@@ -149,7 +157,16 @@ class _HomeShellState extends State<HomeShell> {
     
     // Mobile layout
     return Scaffold(
-      appBar: AppBar(title: const Text('NCD App')),
+      appBar: AppBar(
+        title: const Text('NCD App'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => Navigator.pushNamed(context, '/settings'),
+            tooltip: 'Settings',
+          ),
+        ],
+      ),
       drawer: Drawer(child: drawerContent),
       body: featureGrid,
     );

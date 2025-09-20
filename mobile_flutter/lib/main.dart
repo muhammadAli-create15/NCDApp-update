@@ -23,6 +23,9 @@ import 'src/screens/quizzes_history_screen.dart';
 import 'src/pages/appointment_page.dart';
 import 'src/messaging/screens/screens.dart';
 import 'src/messaging/services/services.dart';
+import 'src/theme/theme_provider.dart';
+import 'src/theme/app_theme.dart';
+import 'src/screens/app_settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +65,7 @@ class NcdApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SupabaseAuthProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
         Provider<MediaService>.value(value: mediaService),
         ChangeNotifierProvider(create: (_) => OfflineMessageProvider()),
         ChangeNotifierProxyProvider<OfflineMessageProvider, ChatProvider>(
@@ -86,35 +90,24 @@ class NcdApp extends StatelessWidget {
           ),
         ),
       ],
-      child: MaterialApp(
-        title: 'NCD Mobile',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          primarySwatch: Colors.teal,
-          // Make app fonts responsive
-          textTheme: Typography.material2018().black.apply(
-            fontSizeFactor: 1.0, // Base font size (will be adjusted by responsive helper)
-          ),
-          // Use adaptive components where possible
-          appBarTheme: AppBarTheme(
-            elevation: 2.0,
-            centerTitle: true,
-          ),
-          cardTheme: const CardThemeData(
-            elevation: 2.0,
-            margin: EdgeInsets.symmetric(vertical: 8.0),
-          ),
-        ),
-        builder: (context, child) {
-          // Apply a responsive font scale based on device size
-          return MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              textScaleFactor: MediaQuery.of(context).size.width > 768 ? 1.1 : 1.0,
-            ),
-            child: child!,
-          );
-        },
-        routes: {
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          return MaterialApp(
+            title: 'NCD Mobile',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: themeProvider.themeMode,
+            builder: (context, child) {
+              // Apply a responsive font scale based on device size
+              return MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaleFactor: MediaQuery.of(context).size.width > 768 ? 1.1 : 1.0,
+                ),
+                child: child!,
+              );
+            },
+            routes: {
           '/': (_) => const AuthWrapper(),
           '/login': (_) => const LoginScreen(),
           '/register': (_) => const RegisterScreen(),
@@ -134,6 +127,9 @@ class NcdApp extends StatelessWidget {
           '/messages': (_) => const ChatSelectionScreen(),
           '/custom-messaging': (_) => const CustomMessagingScreen(chatId: 'default'),
           '/analytics': (_) => const AnalyticsScreen(),
+          '/settings': (_) => const AppSettingsScreen(),
+            },
+          );
         },
       ),
     );

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'auth/supabase_auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
@@ -13,67 +12,73 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  late Future<bool> _checkBypassFuture;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _checkBypassFuture = _checkBypassUser();
+    // Use Future.microtask to ensure this runs after the current build cycle completes
+    Future.microtask(_initialize);
   }
 
-  Future<bool> _checkBypassUser() async {
+  Future<void> _initialize() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final auth = Provider.of<SupabaseAuthProvider>(context, listen: false);
+      await auth.initialize();
       
-      // Store the bypass credentials for future use
-      if (!prefs.containsKey('bypass_email')) {
-        await prefs.setString('bypass_email', 'abdulssekyanzi@gmail.com');
-        await prefs.setString('bypass_password', 'Su4at3#0');
-      }
-      
-      final bypassEmail = prefs.getString('bypass_email');
-      final bypassPassword = prefs.getString('bypass_password');
-      
-      if (bypassEmail == 'abdulssekyanzi@gmail.com' && bypassPassword == 'Su4at3#0') {
-        final auth = Provider.of<SupabaseAuthProvider>(context, listen: false);
-        return await auth.bypassAuth(bypassEmail!, bypassPassword!);
+      if (mounted) {
+        setState(() => _isInitialized = true);
       }
     } catch (e) {
-      print('Bypass check error: $e');
+      debugPrint('Error initializing auth: $e');
+      // Set to initialized anyway so the UI can show the login screen
+      if (mounted) {
+        setState(() => _isInitialized = true);
+      }
     }
-    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
-      future: _checkBypassFuture,
-      builder: (context, snapshot) {
-        // Still checking bypass status
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    if (!_isInitialized) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 24),
+              Text('Initializing...', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Consumer<SupabaseAuthProvider>(
+      builder: (context, auth, _) {
+        // Show loading while checking auth state
+        if (auth.isLoading) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 24),
+                  Text('Loading...', style: TextStyle(fontSize: 16)),
+                ],
+              ),
+            ),
           );
         }
-
-        // Bypass successful
-        if (snapshot.data == true) {
-          return const HomeShell();
-        }
-
-        // Normal auth flow
-        return Consumer<SupabaseAuthProvider>(
-          builder: (context, auth, _) {
-            // Show loading while checking auth state
-            if (auth.isLoading) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            
-            // Navigate based on auth state
-            return auth.isAuthenticated ? const HomeShell() : const LoginScreen();
-          },
+        
+        // Navigate based on auth state
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: auth.isAuthenticated 
+            ? const HomeShell(key: ValueKey('home')) 
+            : const LoginScreen(key: ValueKey('login')),
         );
       },
     );

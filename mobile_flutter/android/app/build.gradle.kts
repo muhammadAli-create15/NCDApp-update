@@ -13,6 +13,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable core library desugaring for flutter_local_notifications
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -28,6 +30,14 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Enable multidex support
+        multiDexEnabled = true
+    }
+    
+    dexOptions {
+        javaMaxHeapSize = "1g"
+        preDexLibraries = false
     }
 
     buildTypes {
@@ -41,4 +51,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Add desugaring dependency with required version 1.2.2 or above
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.2.2")
+    // Add multidex support
+    implementation("androidx.multidex:multidex:2.0.1")
 }
