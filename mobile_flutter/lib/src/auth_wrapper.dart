@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'auth/supabase_auth_provider.dart';
-import 'screens/login_screen.dart';
+// import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
 
 class AuthWrapper extends StatefulWidget {
@@ -12,7 +12,7 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  bool _isInitialized = false;
+  // bool _isInitialized = false;
 
   @override
   void initState() {
@@ -26,61 +26,23 @@ class _AuthWrapperState extends State<AuthWrapper> {
       final auth = Provider.of<SupabaseAuthProvider>(context, listen: false);
       await auth.initialize();
       
-      if (mounted) {
-        setState(() => _isInitialized = true);
-      }
+      // No longer needed: _isInitialized
+      // if (mounted) {
+      //   setState(() => _isInitialized = true);
+      // }
     } catch (e) {
       debugPrint('Error initializing auth: $e');
       // Set to initialized anyway so the UI can show the login screen
-      if (mounted) {
-        setState(() => _isInitialized = true);
-      }
+      // No longer needed: _isInitialized
+      // if (mounted) {
+      //   setState(() => _isInitialized = true);
+      // }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInitialized) {
-      return const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 24),
-              Text('Initializing...', style: TextStyle(fontSize: 16)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Consumer<SupabaseAuthProvider>(
-      builder: (context, auth, _) {
-        // Show loading while checking auth state
-        if (auth.isLoading) {
-          return const Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 24),
-                  Text('Loading...', style: TextStyle(fontSize: 16)),
-                ],
-              ),
-            ),
-          );
-        }
-        
-        // Navigate based on auth state
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: auth.isAuthenticated 
-            ? const HomeShell(key: ValueKey('home')) 
-            : const LoginScreen(key: ValueKey('login')),
-        );
-      },
-    );
+    // Always show dashboard (HomeShell) regardless of auth state
+    return const HomeShell(key: ValueKey('home'));
   }
 }

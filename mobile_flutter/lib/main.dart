@@ -69,9 +69,9 @@ class NcdApp extends StatelessWidget {
         Provider<MediaService>.value(value: mediaService),
         ChangeNotifierProvider(create: (_) => OfflineMessageProvider()),
         ChangeNotifierProxyProvider<OfflineMessageProvider, ChatProvider>(
-          // Create the ChatProvider with a ChatService
+          // Now using our fixed SupabaseChatService
           create: (_) => ChatProvider(
-            chatService: ChatService(),
+            chatService: SupabaseChatService(), // Using our updated implementation
           ),
           // Update the ChatProvider whenever OfflineMessageProvider changes
           update: (_, offlineProvider, chatProvider) {

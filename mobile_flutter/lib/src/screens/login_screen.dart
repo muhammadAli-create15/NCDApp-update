@@ -39,6 +39,20 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (error != null && mounted) {
         setState(() => _errorMessage = error);
+      } else if (mounted) {
+        // Success - check if bypass mode was activated
+        if (auth.isBypassed) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('🔓 Development mode activated'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        // Note: Navigation should be handled by AuthWrapper or parent widget
+        // listening to auth changes. If not, add explicit navigation here:
+        // Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (mounted) {

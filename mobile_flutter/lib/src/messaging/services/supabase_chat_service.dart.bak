@@ -1,0 +1,556 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/models.dart';
+import 'chat_service.dart';
+import 'offline_message_service.dart';
+import '../../config/supabase_config.dart';
+
+class SupabaseChatService extends ChatService {
+  final SupabaseClient _supabase = Supabase.instance.client;
+  StreamSubscription? _messagesSubscription;
+  StreamSubscription? _chatsSubscription;
+  StreamSubscription? _usersSubscription;
+  
+  SupabaseChatService() : super(
+    baseUrl: SupabaseConfig.url, // Use the Supabase URL from config
+    socketUrl: SupabaseConfig.url, // Use the same URL for realtime
+  );
+  
+  @override
+  Future<void> initialize({OfflineMessageService? offlineService}) async {
+    _currentUserId = _supabase.auth.currentUser?.id;
+    _offlineService = offlineService;
+    
+    if (_currentUserId == null) {
+      debugPrint('SupabaseChatService: User not authenticated');
+      return; // Return without throwing exception for better error handling
+    }
+    
+    debugPrint('SupabaseChatService: Initializing for user $_currentUserId');
+    
+    try {
+      // Subscribe to messages table changes
+      _messagesSubscription = _supabase
+        .channel('public:chat_messages')
+        .on(
+          RealtimeListenTypes.postgresChanges,
+          ChannelFilter(
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+          ),
+          (payload, [ref]) {
+            debugPrint('SupabaseChatService: New message received');
+            final message = ChatMessage.fromJson(payload['new']);
+            _handleNewMessage(message);
+          },
+        )
+        .subscribe();
+        
+      // Subscribe to chats table changes
+      _chatsSubscription = _supabase
+        .channel('public:chats')
+        .on(
+          RealtimeListenTypes.postgresChanges,
+          ChannelFilter(
+            event: 'INSERT',
+            schema: 'public',
+            table: 'support_group_messages', // Using the existing table for messages
+          ),
+          (payload, [ref]) {
+            debugPrint('SupabaseChatService: Chat updated');
+            // Handle chat updates
+            _loadChats(); // Reload chats when changes detected
+          },
+        )
+        .subscribe();
+      
+      // Load existing chats and messages
+      await _loadChats();
+      await _loadUsers();
+      
+      _connected = true;
+      notifyListeners();
+      
+      debugPrint('SupabaseChatService: Initialization complete');
+    } catch (e) {
+      debugPrint('SupabaseChatService initialization error: $e');
+      _connected = false;
+    }
+  }
+  
+  @override
+  Future<void> dispose() async {
+    await _messagesSubscription?.cancel();
+    await _chatsSubscription?.cancel();
+    await _usersSubscription?.cancel();
+    super.dispose();
+  }
+  
+  @override
+  Future<void> _loadChats() async {
+    if (_currentUserId == null) return;
+    
+    try {
+      // Load chats the user is part of
+      final response = await _supabase
+        .from('support_groups') // Using support_groups as our chat groups
+        .select('*')
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error loading chats: ${response.error!.message}');
+        return;
+      }
+      
+      final List<dynamic> data = response.data as List<dynamic>;
+      
+      // Convert to chat objects
+      for (var chatData in data) {
+        final chat = Chat(
+          id: chatData['id'],
+          type: chatData['is_private'] ? ChatType.direct : ChatType.group,
+          name: chatData['name'],
+          participantIds: (chatData['member_ids'] as List<dynamic>?)?.cast<String>() ?? [],
+          createdAt: DateTime.parse(chatData['created_at']),
+          updatedAt: chatData['updated_at'] != null ? 
+            DateTime.parse(chatData['updated_at']) : null,
+        );
+        
+        _chats[chat.id] = chat;
+      }
+      
+      // Load last messages for each chat
+      await _loadLastMessages();
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error in _loadChats: $e');
+    }
+  }
+  
+  Future<void> _loadLastMessages() async {
+    // Implementation for loading last message of each chat
+    for (final chatId in _chats.keys) {
+      try {
+        final response = await _supabase
+          .from('support_group_messages')
+          .select('*')
+          .eq('group_id', chatId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .execute();
+          
+        if (response.error == null && (response.data as List).isNotEmpty) {
+          final messageData = (response.data as List)[0];
+          final message = ChatMessage(
+            id: messageData['id'],
+            chatId: messageData['group_id'],
+            senderId: messageData['user_id'],
+            content: messageData['message'],
+            type: MessageType.text,
+            status: MessageStatus.sent,
+            createdAt: DateTime.parse(messageData['created_at']),
+          );
+          
+          // Update the chat with last message
+          final chat = _chats[chatId];
+          if (chat != null) {
+            _chats[chatId] = chat.copyWith(lastMessage: message);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading last message for chat $chatId: $e');
+      }
+    }
+  }
+  
+  Future<void> _loadUsers() async {
+    try {
+      // Load all users that are in the user's chats
+      final userIds = <String>{};
+      
+      // Add all participant IDs from all chats
+      for (final chat in _chats.values) {
+        userIds.addAll(chat.participantIds);
+      }
+      
+      // Add current user
+      if (_currentUserId != null) {
+        userIds.add(_currentUserId!);
+      }
+      
+      if (userIds.isEmpty) return;
+      
+      // Fetch user data
+      final response = await _supabase
+        .from('profiles')
+        .select('id, email, first_name, last_name, avatar_url, updated_at')
+        .in_('id', userIds.toList())
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error loading users: ${response.error!.message}');
+        return;
+      }
+      
+      final List<dynamic> data = response.data as List<dynamic>;
+      
+      for (var userData in data) {
+        final user = ChatUser(
+          id: userData['id'],
+          firstName: userData['first_name'] ?? '',
+          lastName: userData['last_name'] ?? '',
+          avatarUrl: userData['avatar_url'],
+          isOnline: false, // We'll update this from user presence
+          lastSeen: userData['updated_at'] != null ? 
+            DateTime.parse(userData['updated_at']) : null,
+        );
+        
+        _users[user.id] = user;
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error in _loadUsers: $e');
+    }
+  }
+  
+  @override
+  Future<List<ChatMessage>> loadMessages(String chatId, {int limit = 50, DateTime? before}) async {
+    if (!_messages.containsKey(chatId)) {
+      _messages[chatId] = [];
+    }
+    
+    try {
+      var query = _supabase
+        .from('support_group_messages')
+        .select('*')
+        .eq('group_id', chatId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+        
+      if (before != null) {
+        query = query.lt('created_at', before.toIso8601String());
+      }
+      
+      final response = await query.execute();
+      
+      if (response.error != null) {
+        debugPrint('Error loading messages: ${response.error!.message}');
+        return _messages[chatId]!;
+      }
+      
+      final List<dynamic> data = response.data as List<dynamic>;
+      final List<ChatMessage> newMessages = [];
+      
+      for (var messageData in data) {
+        final message = ChatMessage(
+          id: messageData['id'],
+          chatId: messageData['group_id'],
+          senderId: messageData['user_id'],
+          content: messageData['message'],
+          type: MessageType.text, // Default to text
+          status: MessageStatus.sent,
+          createdAt: DateTime.parse(messageData['created_at']),
+          metadata: messageData['attachment_url'] != null ? 
+            {'attachmentUrl': messageData['attachment_url']} : null,
+        );
+        
+        newMessages.add(message);
+      }
+      
+      // Merge with existing messages, avoiding duplicates
+      final existingIds = _messages[chatId]!.map((m) => m.id).toSet();
+      final uniqueNewMessages = newMessages.where((m) => !existingIds.contains(m.id)).toList();
+      
+      _messages[chatId] = [..._messages[chatId]!, ...uniqueNewMessages];
+      
+      // Sort by timestamp, newest last
+      _messages[chatId]!.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      
+      notifyListeners();
+      return _messages[chatId]!;
+    } catch (e) {
+      debugPrint('Error in loadMessages: $e');
+      return _messages[chatId]!;
+    }
+  }
+  
+  @override
+  Future<void> sendMessage(ChatMessage message) async {
+    // Add optimistically to UI
+    if (!_messages.containsKey(message.chatId)) {
+      _messages[message.chatId] = [];
+    }
+    
+    // Add to local messages
+    _messages[message.chatId]!.add(message);
+    _messageController.add(message);
+    
+    // Update last message in chat
+    final chat = _chats[message.chatId];
+    if (chat != null) {
+      _chats[message.chatId] = chat.copyWith(lastMessage: message);
+      _chatController.add(_chats[message.chatId]!);
+    }
+    
+    notifyListeners();
+    
+    try {
+      // Send to server
+      final response = await _supabase
+        .from('support_group_messages')
+        .insert({
+          'id': message.id,
+          'group_id': message.chatId,
+          'user_id': message.senderId,
+          'message': message.content,
+          'attachment_url': message.metadata?['attachmentUrl'],
+          'created_at': message.createdAt.toIso8601String(),
+        })
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error sending message: ${response.error!.message}');
+        
+        // Update message status to failed
+        _updateMessageStatus(message.id, MessageStatus.failed);
+        
+        // Save to offline queue if we have offline service
+        if (_offlineService != null) {
+          await _offlineService!.saveMessage(message);
+        }
+      } else {
+        // Update message status to sent
+        _updateMessageStatus(message.id, MessageStatus.sent);
+      }
+    } catch (e) {
+      debugPrint('Error in sendMessage: $e');
+      _updateMessageStatus(message.id, MessageStatus.failed);
+      
+      // Save to offline queue
+      if (_offlineService != null) {
+        await _offlineService!.saveMessage(message);
+      }
+    }
+  }
+  
+  void _updateMessageStatus(String messageId, MessageStatus status) {
+    for (final chatId in _messages.keys) {
+      final index = _messages[chatId]!.indexWhere((m) => m.id == messageId);
+      if (index != -1) {
+        final message = _messages[chatId]![index];
+        _messages[chatId]![index] = ChatMessage(
+          id: message.id,
+          chatId: message.chatId,
+          senderId: message.senderId,
+          receiverId: message.receiverId,
+          content: message.content,
+          type: message.type,
+          status: status,
+          createdAt: message.createdAt,
+          metadata: message.metadata,
+        );
+        
+        // Update last message if needed
+        final chat = _chats[message.chatId];
+        if (chat?.lastMessage?.id == messageId) {
+          _chats[message.chatId] = chat!.copyWith(
+            lastMessage: _messages[chatId]![index],
+          );
+          _chatController.add(_chats[message.chatId]!);
+        }
+        
+        notifyListeners();
+        break;
+      }
+    }
+  }
+  
+  // Handle new messages from realtime subscription
+  void _handleNewMessage(ChatMessage message) {
+    // Check if this is our own message
+    if (message.senderId == _currentUserId) {
+      return; // We already added it in sendMessage
+    }
+    
+    // Add to local messages
+    if (!_messages.containsKey(message.chatId)) {
+      _messages[message.chatId] = [];
+    }
+    
+    // Avoid duplicates
+    if (!_messages[message.chatId]!.any((m) => m.id == message.id)) {
+      _messages[message.chatId]!.add(message);
+      _messageController.add(message);
+      
+      // Update last message in chat
+      final chat = _chats[message.chatId];
+      if (chat != null) {
+        _chats[message.chatId] = chat.copyWith(lastMessage: message);
+        _chatController.add(_chats[message.chatId]!);
+      }
+      
+      notifyListeners();
+    }
+  }
+  
+  @override
+  Future<List<ChatUser>> searchUsers(String query) async {
+    if (query.isEmpty || query.length < 2) return [];
+    
+    try {
+      final response = await _supabase
+        .from('profiles')
+        .select('id, email, first_name, last_name, avatar_url, updated_at')
+        .or('first_name.ilike.%$query%,last_name.ilike.%$query%,email.ilike.%$query%')
+        .limit(20)
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error searching users: ${response.error!.message}');
+        return [];
+      }
+      
+      final List<dynamic> data = response.data as List<dynamic>;
+      final List<ChatUser> results = [];
+      
+      for (var userData in data) {
+        // Skip current user
+        if (userData['id'] == _currentUserId) continue;
+        
+        final user = ChatUser(
+          id: userData['id'],
+          firstName: userData['first_name'] ?? '',
+          lastName: userData['last_name'] ?? '',
+          avatarUrl: userData['avatar_url'],
+          isOnline: false,
+          lastSeen: userData['updated_at'] != null ? 
+            DateTime.parse(userData['updated_at']) : null,
+        );
+        
+        results.add(user);
+        
+        // Also add to our users map
+        _users[user.id] = user;
+      }
+      
+      return results;
+    } catch (e) {
+      debugPrint('Error in searchUsers: $e');
+      return [];
+    }
+  }
+  
+  @override
+  Future<Chat?> createDirectChat(String otherUserId) async {
+    if (_currentUserId == null) return null;
+    
+    // Check if chat already exists
+    final existingChat = _chats.values.firstWhere(
+      (chat) => 
+        chat.type == ChatType.direct && 
+        chat.participantIds.contains(_currentUserId) && 
+        chat.participantIds.contains(otherUserId),
+      orElse: () => Chat(
+        id: '',  // Empty id indicates not found
+        type: ChatType.direct,
+        participantIds: [],
+      ),
+    );
+    
+    if (existingChat.id.isNotEmpty) {
+      return existingChat;  // Chat already exists
+    }
+    
+    try {
+      // Create new chat
+      final newChat = Chat(
+        type: ChatType.direct,
+        participantIds: [_currentUserId!, otherUserId],
+      );
+      
+      // Save to Supabase
+      final response = await _supabase
+        .from('support_groups')
+        .insert({
+          'id': newChat.id,
+          'name': '', // No name for direct chats
+          'description': 'Direct chat',
+          'category': 'direct',
+          'is_private': true,
+          'created_by': _currentUserId,
+          'member_ids': newChat.participantIds,
+          'created_at': newChat.createdAt.toIso8601String(),
+        })
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error creating direct chat: ${response.error!.message}');
+        return null;
+      }
+      
+      // Add to local chats
+      _chats[newChat.id] = newChat;
+      _chatController.add(newChat);
+      notifyListeners();
+      
+      return newChat;
+    } catch (e) {
+      debugPrint('Error in createDirectChat: $e');
+      return null;
+    }
+  }
+  
+  @override
+  Future<Chat?> createGroupChat(String name, List<String> participantIds, {String? description}) async {
+    if (_currentUserId == null) return null;
+    
+    // Ensure current user is included
+    if (!participantIds.contains(_currentUserId)) {
+      participantIds = [...participantIds, _currentUserId!];
+    }
+    
+    try {
+      // Create new chat
+      final newChat = Chat(
+        type: ChatType.group,
+        name: name,
+        participantIds: participantIds,
+        metadata: description != null ? {'description': description} : null,
+      );
+      
+      // Save to Supabase
+      final response = await _supabase
+        .from('support_groups')
+        .insert({
+          'id': newChat.id,
+          'name': name,
+          'description': description ?? '',
+          'category': 'group',
+          'is_private': false,
+          'created_by': _currentUserId,
+          'member_ids': participantIds,
+          'created_at': newChat.createdAt.toIso8601String(),
+        })
+        .execute();
+        
+      if (response.error != null) {
+        debugPrint('Error creating group chat: ${response.error!.message}');
+        return null;
+      }
+      
+      // Add to local chats
+      _chats[newChat.id] = newChat;
+      _chatController.add(newChat);
+      notifyListeners();
+      
+      return newChat;
+    } catch (e) {
+      debugPrint('Error in createGroupChat: $e');
+      return null;
+    }
+  }
+}

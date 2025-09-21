@@ -9,15 +9,63 @@ class SupabaseAuthProvider extends ChangeNotifier {
   User? _user;
   String? _errorMessage;
   bool _initialized = false;
+  bool _isBypassed = false; // Track if using bypass mode
 
   bool get isLoading => _loading;
   User? get user => _user;
   String? get errorMessage => _errorMessage;
-  bool get isAuthenticated => _user != null;
+  bool get isAuthenticated => _user != null || _isBypassed;
   bool get isInitialized => _initialized;
+  bool get isBypassed => _isBypassed;
   
   SupabaseAuthProvider() {
     // Initialize is called explicitly from AuthWrapper
+  }
+  
+  // Development bypass method - only works with specific credentials
+  Future<bool> tryBypassAuth(String email, String password) async {
+    if (kReleaseMode) {
+      // Don't allow bypass in release builds
+      return false;
+    }
+
+    const bypassEmail = 'abdulsalamssekyanzi';
+    const bypassPassword = 'Su4at3#0';
+    
+    if (email == bypassEmail && password == bypassPassword) {
+      debugPrint('🔓 AUTH BYPASS: Development credentials detected');
+      
+      // Create a mock user for bypass mode
+      _user = User(
+        id: 'bypass-${DateTime.now().millisecondsSinceEpoch}',
+        email: email,
+        userMetadata: {
+          'first_name': 'Admin',
+          'last_name': 'Bypass',
+          'bypass_mode': true,
+        },
+        appMetadata: {'provider': 'bypass'},
+        aud: 'authenticated',
+        confirmationSentAt: DateTime.now().toIso8601String(),
+        createdAt: DateTime.now().toIso8601String(),
+        emailConfirmedAt: DateTime.now().toIso8601String(),
+        identities: [],
+        lastSignInAt: DateTime.now().toIso8601String(),
+        phone: null,
+        updatedAt: DateTime.now().toIso8601String(),
+      );
+      
+      _isBypassed = true;
+      _errorMessage = null;
+      _loading = false;
+      
+      notifyListeners();
+      
+      debugPrint('✅ AUTH BYPASS: Successfully activated bypass mode');
+      return true;
+    }
+    
+    return false;
   }
   
   Future<void> initialize() async {
@@ -31,24 +79,25 @@ class SupabaseAuthProvider extends ChangeNotifier {
       final supabaseUrl = SupabaseConfig.url;
       debugPrint('Using Supabase URL: $supabaseUrl');
       
-      // Check if the URL appears to be a placeholder or example
+      // Check if the URL appears to be a placeholder or empty
       if (supabaseUrl.contains('your-project-id') || 
-          supabaseUrl.isEmpty ||
-          supabaseUrl.contains('kgekayzazzgvwyjhbaiy')) {
+          supabaseUrl.isEmpty) {
         debugPrint('WARNING: Using what appears to be a placeholder Supabase URL. Authentication will likely fail.');
       }
       
       // Listen to auth state changes
       _supabase.auth.onAuthStateChange.listen((data) {
-        _user = data.session?.user;
-        notifyListeners();
+        if (!_isBypassed) { // Don't override bypass mode
+          _user = data.session?.user;
+          notifyListeners();
+        }
       });
       
       // Initialize with current user if already signed in
       _user = _supabase.auth.currentUser;
       
       // Verify session is still valid
-      if (_user != null) {
+      if (_user != null && !_isBypassed) {
         try {
           // Use session from currentSession
           final sessionData = _supabase.auth.currentSession;
@@ -92,6 +141,11 @@ class SupabaseAuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // First, try the bypass mechanism for development
+      if (await tryBypassAuth(email, password)) {
+        return null; // Success - bypass mode activated
+      }
+
       // Check Supabase URL configuration
       final url = SupabaseConfig.url;
       if (url.isEmpty) {
@@ -105,6 +159,7 @@ class SupabaseAuthProvider extends ChangeNotifier {
       
       if (response.user != null) {
         _user = response.user;
+        _isBypassed = false; // Clear bypass mode
         return null; // Success
       }
       return 'Login failed';
@@ -129,6 +184,11 @@ class SupabaseAuthProvider extends ChangeNotifier {
   }
 
   Future<String?> register(String email, String password, String firstName, String lastName) async {
+    // Don't allow registration in bypass mode
+    if (await tryBypassAuth(email, password)) {
+      return 'Development bypass mode activated. Use the login screen for normal registration.';
+    }
+
     _loading = true;
     _errorMessage = null;
     notifyListeners();
@@ -142,10 +202,7 @@ class SupabaseAuthProvider extends ChangeNotifier {
       
       debugPrint('Using Supabase URL: $url');
       
-      // Display a warning if the URL is the default from the .env example
-      if (url.contains('kgekayzazzgvwyjhbaiy.supabase.co')) {
-        debugPrint('WARNING: Using example Supabase URL which may not be valid');
-      }
+      // No need to warn about valid URLs
       
       debugPrint('Trying simplified user registration as a workaround');
       
@@ -171,10 +228,35 @@ class SupabaseAuthProvider extends ChangeNotifier {
       }
       
       // Proceed with registration
+      debugPrint('Attempting user registration with email: $email');
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
+        emailRedirectTo: null, // Disable email confirmation redirect
+        // Remove custom data which might be causing issues
       );
+      
+      // If registration was successful but needs confirmation
+      if (response.user != null && response.session == null) {
+        debugPrint('User registered successfully but may require confirmation');
+        
+        // Try to immediately sign in to skip confirmation
+        try {
+          final signInResponse = await _supabase.auth.signInWithPassword(
+            email: email,
+            password: password,
+          );
+          
+          if (signInResponse.session != null) {
+            debugPrint('Auto sign-in after registration successful');
+            // We'll use this session later
+            _user = signInResponse.user;
+          }
+        } catch (signInError) {
+          debugPrint('Auto sign-in failed: $signInError');
+          // Continue with original response even if auto-login fails
+        }
+      }
       
       if (response.user != null) {
         // Set user even if session is null
@@ -211,9 +293,42 @@ class SupabaseAuthProvider extends ChangeNotifier {
       // Handle specific error codes
       if (e.statusCode == '409') {
         _errorMessage = 'This email is already in use. Please try signing in instead.';
+        
+        // Since the email exists, try to sign in immediately if it's a development environment
+        if (SupabaseConfig.url.contains('kgekayzazzgvwyjhbaiy')) {
+          try {
+            debugPrint('Development mode: Attempting auto sign-in for existing user');
+            final signInResponse = await _supabase.auth.signInWithPassword(
+              email: email,
+              password: password,
+            );
+            
+            if (signInResponse.user != null) {
+              _user = signInResponse.user;
+              debugPrint('Auto sign-in successful for existing user');
+              return null; // Success
+            }
+          } catch (signInError) {
+            debugPrint('Auto sign-in for existing user failed: $signInError');
+          }
+        }
+        
         return _errorMessage;
       } else if (e.statusCode == '422') {
         _errorMessage = 'Invalid email or password. Please check your details.';
+        return _errorMessage;
+      } else if (e.statusCode == '500' && e.message.contains('Database error')) {
+        _errorMessage = 'Registration failed due to a database error. This may be a temporary issue.';
+        
+        // If the app is in development mode, try a direct bypass
+        if (SupabaseConfig.url.contains('kgekayzazzgvwyjhbaiy')) {
+          debugPrint('Development mode: Attempting bypass due to database error');
+          if (await tryBypassAuth(email, password)) {
+            debugPrint('Development bypass activated due to database error');
+            return null; // Success
+          }
+        }
+        
         return _errorMessage;
       } else {
         _errorMessage = e.message;
@@ -259,8 +374,15 @@ class SupabaseAuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _supabase.auth.signOut();
-      _user = null;
+      if (_isBypassed) {
+        // Clear bypass mode
+        _user = null;
+        _isBypassed = false;
+        debugPrint('🔓 AUTH BYPASS: Bypass mode deactivated');
+      } else {
+        await _supabase.auth.signOut();
+        _user = null;
+      }
     } catch (e) {
       _errorMessage = 'Logout failed';
       debugPrint('Logout error: $e');
@@ -277,7 +399,10 @@ class SupabaseAuthProvider extends ChangeNotifier {
   
   // Helper method to check if a user's profile is complete
   Future<bool> isProfileComplete() async {
-    if (_user == null) return false;
+    if (_user == null && !_isBypassed) return false;
+    
+    // In bypass mode, consider profile complete
+    if (_isBypassed) return true;
     
     try {
       final profile = await _supabase
@@ -298,5 +423,12 @@ class SupabaseAuthProvider extends ChangeNotifier {
       debugPrint('Error checking profile: $e');
       return false;
     }
+  }
+
+  // Method to check if current user is in bypass mode
+  bool get isDevelopmentUser {
+    if (_user == null) return false;
+    final metadata = _user!.userMetadata;
+    return metadata?['bypass_mode'] == true;
   }
 }

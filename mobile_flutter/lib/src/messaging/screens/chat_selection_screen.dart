@@ -6,6 +6,7 @@ import '../services/services.dart';
 import '../models/models.dart';
 import 'messaging_screen.dart';
 import 'custom_messaging_screen.dart';
+import '../widgets/simple_new_chat_dialog.dart';
 
 class ChatSelectionScreen extends StatefulWidget {
   const ChatSelectionScreen({super.key});
@@ -18,6 +19,18 @@ class _ChatSelectionScreenState extends State<ChatSelectionScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _isLoading = true;
+  
+  void _showNewChatDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).canvasColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (context) => const SimpleNewChatDialog(),
+    );
+  }
 
   @override
   void initState() {
@@ -60,13 +73,7 @@ class _ChatSelectionScreenState extends State<ChatSelectionScreen> {
     );
   }
 
-  void _createNewChat() {
-    // Show dialog to select users
-    showDialog(
-      context: context,
-      builder: (context) => _NewChatDialog(),
-    );
-  }
+  // Using our enhanced _showNewChatDialog defined above
 
   @override
   Widget build(BuildContext context) {
@@ -76,10 +83,15 @@ class _ChatSelectionScreenState extends State<ChatSelectionScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: _createNewChat,
+            onPressed: _showNewChatDialog,
             tooltip: 'New chat',
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showNewChatDialog,
+        child: const Icon(Icons.chat),
+        tooltip: 'New conversation',
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
